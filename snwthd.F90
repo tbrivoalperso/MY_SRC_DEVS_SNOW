@@ -16,9 +16,11 @@ MODULE snwthd
    USE dom_oce         ! ocean space and time domain
    USE phycst          ! physical constants (ocean directory) 
    USE ice             ! sea-ice: variables
+   USE ice1D          ! sea-ice: thermodynamics variables
    USE icectl         ! sea-ice: control print
 
    USE snwthd_zdf      ! snow: vertical diffusion 
+   USE snwthd_dh       ! snow: growing / melting 
    !
    USE in_out_manager  ! I/O manager
    USE lib_mpp         ! MPP library
@@ -40,7 +42,7 @@ MODULE snwthd
    !!----------------------------------------------------------------------
 CONTAINS
 
-   SUBROUTINE snw_thd( zradtr_s, zradab_s, za_s_fra )
+   SUBROUTINE snw_thd( zradtr_s, zradab_s, za_s_fra, zq_rema, zevap_rema ) 
       !!-------------------------------------------------------------------
       !!                ***  ROUTINE snw_thd  ***
       !!
@@ -60,19 +62,28 @@ CONTAINS
       REAL(wp), DIMENSION(jpij,0:nlay_s), INTENT(out) ::   zradtr_s  ! Radiation transmited through the snow
       REAL(wp), DIMENSION(jpij,0:nlay_s), INTENT(out) ::   zradab_s  ! Radiation absorbed in the snow 
       REAL(wp), DIMENSION(jpij), INTENT(out) ::   za_s_fra    ! ice fraction covered by snow
+      REAL(wp), DIMENSION(jpij), INTENT(out) ::   zq_rema     ! remaining heat flux from snow melting       (J.m-2)
+      REAL(wp), DIMENSION(jpij), INTENT(out) ::   zevap_rema  ! remaining mass flux from snow sublimation   (kg.m-2)
       !
       !!-------------------------------------------------------------------
       ! controls
       IF( ln_timing    )   CALL timing_start('snwthd')                                                             ! timing
       IF( ln_icediachk )   CALL ice_cons_hsm(0, 'snwthd', rdiag_v, rdiag_s, rdiag_t, rdiag_fv, rdiag_fs, rdiag_ft) ! conservation
       IF( ln_icediachk )   CALL ice_cons2D  (0, 'snwthd',  diag_v,  diag_s,  diag_t,  diag_fv,  diag_fs,  diag_ft) ! conservation
-
+      
       !------------------
       ! 1) Thermodynamics 
       !------------------
+      h_s_1d_old(:) = h_s_1d(:) 
+      e_s_1d_old(:,:) = e_s_1d(:,:)
 
       CALL snw_thd_zdf( zradtr_s, zradab_s, za_s_fra )
 
+      !------------------
+      ! 2) Snowfall / melt 
+      !------------------
+
+      IF( ln_icedH )   CALL snw_thd_dh( zq_rema, zevap_rema )
       !
       !
       IF( ln_icediachk )   CALL ice_cons_hsm(1, 'snwthd', rdiag_v, rdiag_s, rdiag_t, rdiag_fv, rdiag_fs, rdiag_ft)

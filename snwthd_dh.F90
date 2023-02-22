@@ -35,7 +35,7 @@ MODULE snwthd_dh
    !!----------------------------------------------------------------------
 CONTAINS
 
-   SUBROUTINE snw_thd_dh
+   SUBROUTINE snw_thd_dh( zq_rema, zevap_rema )
       !!------------------------------------------------------------------
       !!                ***  ROUTINE snw_thd_dh  ***
       !!
@@ -61,60 +61,23 @@ CONTAINS
       !!              Vancoppenolle, Fichefet and Bitz, 2005, Geophys. Res. Let.
       !!              Vancoppenolle et al.,2009, Ocean Modelling
       !!------------------------------------------------------------------
+      REAL(wp), DIMENSION(jpij), INTENT(out) ::   zq_rema     ! remaining heat flux from snow melting       (J.m-2)
+      REAL(wp), DIMENSION(jpij), INTENT(out) ::   zevap_rema  ! remaining mass flux from snow sublimation   (kg.m-2)
+      !
       INTEGER  ::   ji, jk       ! dummy loop indices
       INTEGER  ::   iter         ! local integer
 
-      REAL(wp) ::   ztmelts      ! local scalar
       REAL(wp) ::   zdum
-      REAL(wp) ::   zfracs       ! fractionation coefficient for bottom salt entrapment
-      REAL(wp) ::   zswi1        ! switch for computation of bottom salinity
-      REAL(wp) ::   zswi12       ! switch for computation of bottom salinity
-      REAL(wp) ::   zswi2        ! switch for computation of bottom salinity
-      REAL(wp) ::   zgrr         ! bottom growth rate
-      REAL(wp) ::   zt_i_new     ! bottom formation temperature
-      REAL(wp) ::   z1_rho       ! 1/(rhos+rho0-rhoi)
-
-      REAL(wp) ::   zQm          ! enthalpy exchanged with the ocean (J/m2), >0 towards the ocean
-      REAL(wp) ::   zEi          ! specific enthalpy of sea ice (J/kg)
-      REAL(wp) ::   zEw          ! specific enthalpy of exchanged water (J/kg)
-      REAL(wp) ::   zdE          ! specific enthalpy difference (J/kg)
-      REAL(wp) ::   zfmdt        ! exchange mass flux x time step (J/m2), >0 towards the ocean
 
       REAL(wp), DIMENSION(jpij) ::   zq_top      ! heat for surface ablation                   (J.m-2)
-      REAL(wp), DIMENSION(jpij) ::   zq_bot      ! heat for bottom ablation                    (J.m-2)
-      REAL(wp), DIMENSION(jpij) ::   zq_rema     ! remaining heat at the end of the routine    (J.m-2)
-      REAL(wp), DIMENSION(jpij) ::   zf_tt       ! Heat budget to determine melting or freezing(W.m-2)
-      REAL(wp), DIMENSION(jpij) ::   zevap_rema  ! remaining mass flux from sublimation        (kg.m-2)
       REAL(wp), DIMENSION(jpij) ::   zdeltah
       REAL(wp), DIMENSION(jpij) ::   zsnw        ! distribution of snow after wind blowing
 
-      INTEGER , DIMENSION(jpij,nlay_i)     ::   icount    ! number of layers vanishing by melting
-      REAL(wp), DIMENSION(jpij,0:nlay_i+1) ::   zh_i      ! ice layer thickness (m)
       REAL(wp), DIMENSION(jpij,0:nlay_s  ) ::   zh_s      ! snw layer thickness (m)
       REAL(wp), DIMENSION(jpij,0:nlay_s  ) ::   ze_s      ! snw layer enthalpy (J.m-3)
 
-      REAL(wp) ::   zswitch_sal
-
-      INTEGER  ::   num_iter_max      ! Heat conservation
       !!------------------------------------------------------------------
 
-      ! Discriminate between time varying salinity and constant
-      SELECT CASE( nn_icesal )                  ! varying salinity or not
-         CASE( 1 , 3 )   ;   zswitch_sal = 0._wp   ! prescribed salinity profile
-         CASE( 2 )       ;   zswitch_sal = 1._wp   ! varying salinity profile
-      END SELECT
-
-      ! initialize ice layer thicknesses and enthalpies
-      eh_i_old(1:npti,0:nlay_i+1) = 0._wp
-      h_i_old (1:npti,0:nlay_i+1) = 0._wp
-      zh_i    (1:npti,0:nlay_i+1) = 0._wp
-      DO jk = 1, nlay_i
-         DO ji = 1, npti
-            eh_i_old(ji,jk) = h_i_1d(ji) * r1_nlay_i * e_i_1d(ji,jk)
-            h_i_old (ji,jk) = h_i_1d(ji) * r1_nlay_i
-            zh_i    (ji,jk) = h_i_1d(ji) * r1_nlay_i
-         END DO
-      END DO
       !
       ! initialize snw layer thicknesses and enthalpies
       zh_s(1:npti,0) = 0._wp
@@ -127,7 +90,7 @@ CONTAINS
       END DO
       !
       !                       ! ============================================== !
-      !                       ! Available heat for surface and bottom ablation !
+      !                       ! Available heat for surface ablation !
       !                       ! ============================================== !
       !
       IF( ln_cndflx .AND. .NOT.ln_cndemulate ) THEN
@@ -146,11 +109,6 @@ CONTAINS
          !
       ENDIF
       !
-      DO ji = 1, npti
-         zf_tt(ji)         = qcn_ice_bot_1d(ji) + qsb_ice_bot_1d(ji) + fhld_1d(ji) + qtr_ice_bot_1d(ji) * frq_m_1d(ji)
-         zq_bot(ji)        = MAX( 0._wp, zf_tt(ji) * rDt_ice )
-      END DO
-
       !                       ! ============ !
       !                       !     Snow     !
       !                       ! ============ !
@@ -210,11 +168,13 @@ CONTAINS
                h_s_1d  (ji)    = MAX( 0._wp , h_s_1d  (ji)    + zdum )
                zh_s    (ji,jk) = MAX( 0._wp , zh_s    (ji,jk) + zdum )
 !!$               IF( zh_s(ji,jk) == 0._wp )   ze_s(ji,jk) = 0._wp
+
+               zq_rema (ji) = zq_top (ji) ! remaining heat at the end of the routine in J.m-2 (used to melt ice later on)
                !
             ENDIF
          END DO
       END DO
-
+      
       ! Snow sublimation
       !-----------------
       ! qla_ice is always >=0 (upwards), heat goes to the atmosphere, therefore snow sublimates
@@ -243,103 +203,6 @@ CONTAINS
          END DO
       END DO
 
-      ! Remove snow if ice has melted entirely
-      ! --------------------------------------
-      DO jk = 0, nlay_s
-         DO ji = 1,npti
-            IF( h_i_1d(ji) == 0._wp ) THEN
-               ! mass & energy loss to the ocean
-               hfx_res_1d(ji) = hfx_res_1d(ji) - ze_s(ji,jk) * zh_s(ji,jk) * a_i_1d(ji) * r1_Dt_ice  ! heat flux to the ocean [W.m-2], < 0
-               wfx_res_1d(ji) = wfx_res_1d(ji) + rhos        * zh_s(ji,jk) * a_i_1d(ji) * r1_Dt_ice  ! mass flux
-
-               ! update thickness and energy
-               h_s_1d(ji)    = 0._wp
-               ze_s  (ji,jk) = 0._wp
-               zh_s  (ji,jk) = 0._wp
-            ENDIF
-         END DO
-      END DO
-
-      ! Snow load on ice
-      ! -----------------
-      ! When snow load exceeds Archimede's limit and sst is positive,
-      ! snow-ice formation (next bloc) can lead to negative ice enthalpy.
-      ! Therefore we consider here that this excess of snow falls into the ocean
-      zdeltah(1:npti) = h_s_1d(1:npti) + h_i_1d(1:npti) * (rhoi-rho0) * r1_rhos
-      DO jk = 0, nlay_s
-         DO ji = 1, npti
-            IF( zdeltah(ji) > 0._wp .AND. sst_1d(ji) > 0._wp ) THEN
-               ! snow layer thickness that falls into the ocean
-               zdum = MIN( zdeltah(ji) , zh_s(ji,jk) )
-               ! mass & energy loss to the ocean
-               hfx_res_1d(ji) = hfx_res_1d(ji) - ze_s(ji,jk) * zdum * a_i_1d(ji) * r1_Dt_ice  ! heat flux to the ocean [W.m-2], < 0
-               wfx_res_1d(ji) = wfx_res_1d(ji) + rhos        * zdum * a_i_1d(ji) * r1_Dt_ice  ! mass flux
-               ! update thickness and energy
-               h_s_1d(ji)    = MAX( 0._wp, h_s_1d(ji)  - zdum )
-               zh_s  (ji,jk) = MAX( 0._wp, zh_s(ji,jk) - zdum )
-               ! update snow thickness that still has to fall
-               zdeltah(ji)   = MAX( 0._wp, zdeltah(ji) - zdum )
-            ENDIF
-         END DO
-      END DO
-
-      ! Snow-Ice formation
-      ! ------------------
-      ! When snow load exceeds Archimede's limit, snow-ice interface goes down under sea-level,
-      ! flooding of seawater transforms snow into ice. Thickness that is transformed is dh_snowice (positive for the ice)
-      z1_rho = 1._wp / ( rhos+rho0-rhoi )
-      zdeltah(1:npti) = 0._wp
-      DO ji = 1, npti
-         !
-         dh_snowice(ji) = MAX( 0._wp , ( rhos * h_s_1d(ji) + (rhoi-rho0) * h_i_1d(ji) ) * z1_rho )
-
-         h_i_1d(ji)    = h_i_1d(ji) + dh_snowice(ji)
-         h_s_1d(ji)    = h_s_1d(ji) - dh_snowice(ji)
-
-         ! Contribution to energy flux to the ocean [J/m2], >0 (if sst<0)
-         zfmdt          = ( rhos - rhoi ) * dh_snowice(ji)    ! <0
-         zEw            = rcp * sst_1d(ji)
-         zQm            = zfmdt * zEw
-
-         hfx_thd_1d(ji) = hfx_thd_1d(ji) + zEw        * zfmdt * a_i_1d(ji) * r1_Dt_ice ! Heat flux
-         sfx_sni_1d(ji) = sfx_sni_1d(ji) + sss_1d(ji) * zfmdt * a_i_1d(ji) * r1_Dt_ice ! Salt flux
-
-         ! Case constant salinity in time: virtual salt flux to keep salinity constant
-         IF( nn_icesal /= 2 )  THEN
-            sfx_bri_1d(ji) = sfx_bri_1d(ji) - sss_1d(ji) * zfmdt                 * a_i_1d(ji) * r1_Dt_ice  &  ! put back sss_m     into the ocean
-               &                            - s_i_1d(ji) * dh_snowice(ji) * rhoi * a_i_1d(ji) * r1_Dt_ice     ! and get  rn_icesal from the ocean
-         ENDIF
-
-         ! Mass flux: All snow is thrown in the ocean, and seawater is taken to replace the volume
-         wfx_sni_1d    (ji) = wfx_sni_1d    (ji) - dh_snowice(ji) * rhoi * a_i_1d(ji) * r1_Dt_ice
-         wfx_snw_sni_1d(ji) = wfx_snw_sni_1d(ji) + dh_snowice(ji) * rhos * a_i_1d(ji) * r1_Dt_ice
-
-         ! update thickness
-         zh_i(ji,0)  = zh_i(ji,0) + dh_snowice(ji)
-         zdeltah(ji) =              dh_snowice(ji)
-
-         ! update heat content (J.m-2) and layer thickness
-         h_i_old (ji,0) = h_i_old (ji,0) + dh_snowice(ji)
-         eh_i_old(ji,0) = eh_i_old(ji,0) + zfmdt * zEw           ! 1st part (sea water enthalpy)
-
-      END DO
-      !
-      DO jk = nlay_s, 0, -1   ! flooding of snow starts from the base
-         DO ji = 1, npti
-            zdum           = MIN( zdeltah(ji), zh_s(ji,jk) )     ! amount of snw that floods, > 0
-            zh_s(ji,jk)    = MAX( 0._wp, zh_s(ji,jk) - zdum )    ! remove some snow thickness
-            eh_i_old(ji,0) = eh_i_old(ji,0) + zdum * ze_s(ji,jk) ! 2nd part (snow enthalpy)
-            ! update dh_snowice
-            zdeltah(ji)    = MAX( 0._wp, zdeltah(ji) - zdum )
-         END DO
-      END DO
-      !
-      !
-!!$      ! --- Update snow diags --- !
-!!$      !!clem: this is wrong. dh_s_tot is not used anyway
-!!$      DO ji = 1, npti
-!!$         dh_s_tot(ji) = dh_s_tot(ji) + dh_s_mlt(ji) + zdeltah(ji) + zdh_s_sub(ji) - dh_snowice(ji)
-!!$      END DO
       !
       !
       ! Remapping of snw enthalpy on a regular grid
@@ -356,15 +219,6 @@ CONTAINS
             ENDIF
          END DO
       END DO
-
-      ! Note: remapping of ice enthalpy is done in snwthd.F90
-
-      ! --- ensure that a_i = 0 & h_s = 0 where h_i = 0 ---
-      WHERE( h_i_1d(1:npti) == 0._wp )
-         a_i_1d (1:npti) = 0._wp
-         h_s_1d (1:npti) = 0._wp
-         t_su_1d(1:npti) = rt0
-      END WHERE
 
    END SUBROUTINE snw_thd_dh
 

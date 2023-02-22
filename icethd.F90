@@ -86,9 +86,14 @@ CONTAINS
       !
       INTEGER  :: ji, jj, jk, jl   ! dummy loop indices
 
+      !!-------------------------------------------------------------------
+      ! Variables used if ln_snwext = true
       REAL(wp), DIMENSION(jpij,0:nlay_s) ::   zradtr_s  ! Radiation transmited through the snow
       REAL(wp), DIMENSION(jpij,0:nlay_s) ::   zradab_s  ! Radiation absorbed in the snow 
       REAL(wp), DIMENSION(jpij) ::   za_s_fra    ! ice fraction covered by snow
+      REAL(wp), DIMENSION(jpij) ::   zq_rema     ! remaining hear
+      REAL(wp), DIMENSION(jpij) ::   zevap_rema  ! ice fraction covered by snow
+
       !!-------------------------------------------------------------------
       ! controls
       IF( ln_timing    )   CALL timing_start('icethd')                                                             ! timing
@@ -134,14 +139,16 @@ CONTAINS
             dh_snowice(1:npti) = 0._wp ; dh_s_mlt(1:npti) = 0._wp
             !
             zradtr_s  (1:npti, :) = 0._wp ; zradab_s(1:npti, :) = 0._wp   ! Reset snow fluxes and area
-            za_s_fra  (1:npti) = 0._wp 
+            za_s_fra  (1:npti)    = 0._wp ; zq_rema(1:npti)     = 0._wp
+            zevap_rema(1:npti)    = 0._wp ; 
             !
-            IF( ln_snwext )  CALL snw_thd( zradtr_s, zradab_s, za_s_fra )       ! Snow thermodynamics (detached mode)
+            IF( ln_snwext )  CALL snw_thd( zradtr_s, zradab_s, za_s_fra, zq_rema, zevap_rema )       ! Snow thermodynamics (detached mode)
 
                               CALL ice_thd_zdf( zradtr_s, zradab_s, za_s_fra )                      ! --- Ice-Snow temperature --- !
             !
-            IF( ln_icedH ) THEN                                     ! --- Growing/Melting --- !
-                              CALL ice_thd_dh                           ! Ice-Snow thickness
+            IF( ln_icedH ) THEN                                         ! --- Growing/Melting --- !
+                              CALL ice_thd_dh( zq_rema, zevap_rema )    ! Ice-Snow thickness
+
                               CALL ice_thd_ent( e_i_1d(1:npti,:) )      ! Ice enthalpy remapping
             ENDIF
                               CALL ice_thd_sal( ln_icedS )          ! --- Ice salinity --- !
@@ -279,7 +286,7 @@ CONTAINS
          CALL tab_2d_1d( npti, nptidx(1:npti), at_i_1d(1:npti), at_i             )
          CALL tab_2d_1d( npti, nptidx(1:npti), a_i_1d (1:npti), a_i (:,:,kl)     )
          CALL tab_2d_1d( npti, nptidx(1:npti), h_i_1d (1:npti), h_i (:,:,kl)     )
-         CALL tab_2d_1d( npti, nptidx(1:npti), h_s_1d (1:npti), h_s (:,:,kl)     )
+         CALL tab_2d_1d( npti, nptidx(1:npti), h_s_1d (1:npti), h_s (:,:,kl)     ) 
          CALL tab_2d_1d( npti, nptidx(1:npti), t_su_1d(1:npti), t_su(:,:,kl)     )
          CALL tab_2d_1d( npti, nptidx(1:npti), s_i_1d (1:npti), s_i (:,:,kl)     )
          DO jk = 1, nlay_s

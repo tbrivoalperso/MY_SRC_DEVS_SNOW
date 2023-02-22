@@ -45,7 +45,9 @@ CONTAINS
       !! ** Purpose : computes the time evolution of snow temperature profiles,
       !!              using the original Bitz and Lipscomb (1999) algorithm
       !!
-      !! ** Action : 
+      !! ** Method : solves the heat equation diffusion in the snow with a Neumann
+      !!             boundary condition. The numerical scheme is an iterative Crank-
+      !!             Nicolson on a non-uniform multilayer grid in the snow system. 
       !!             
       !!             
       !!             
